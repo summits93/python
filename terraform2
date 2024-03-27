@@ -1,0 +1,118 @@
+Sure! We can split the Terraform configuration into separate files for better organization. Here's how you can structure the files:
+
+1. **main.tf**: This file will contain the main configuration for the Google Cloud resources.
+2. **variables.tf**: This file will define any input variables used in the configuration.
+3. **outputs.tf**: This file will define any output values to be displayed after Terraform applies the configuration.
+
+Let's divide the configuration accordingly:
+
+**main.tf:**
+```hcl
+provider "google" {
+  project = var.project_id
+  region  = var.region
+}
+
+# Create a Google Compute Engine instance
+resource "google_compute_instance" "web_instance" {
+  name         = "web-instance"
+  machine_type = "n1-standard-1"
+  zone         = "us-central1-a"
+
+  boot_disk {
+    initialize_params {
+      image = "debian-cloud/debian-10"
+    }
+  }
+
+  network_interface {
+    network = "default"
+    access_config {
+      // Ephemeral IP
+    }
+  }
+
+  metadata_startup_script = "apt-get update && apt-get install -y apache2 && systemctl enable apache2 && systemctl start apache2 && echo 'Hello, World!' | sudo tee /var/www/html/index.html"
+}
+
+# Create a Google Compute Engine firewall rule to allow traffic on port 80
+resource "google_compute_firewall" "http_firewall" {
+  name    = "allow-http"
+  network = "default"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["80"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+}
+
+# Create a Google Compute Engine instance group
+resource "google_compute_instance_group" "web_instance_group" {
+  name        = "web-instance-group"
+  zone        = "us-central1-a"
+  description = "Instance group for web instances"
+
+  instances = [google_compute_instance.web_instance.self_link]
+}
+
+# Create a Google Compute Engine health check
+resource "google_compute_http_health_check" "web_health_check" {
+  name               = "web-health-check"
+  request_path       = "/"
+  check_interval_sec = 1
+  timeout_sec        = 1
+}
+
+# Create a Google Compute Engine backend service
+resource "google_compute_backend_service" "web_backend_service" {
+  name                  = "web-backend-service"
+  backend {
+    group = google_compute_instance_group.web_instance_group.self_link
+  }
+  health_checks         = [google_compute_http_health_check.web_health_check.self_link]
+  load_balancing_scheme = "EXTERNAL"
+}
+
+# Create a Google Compute Engine URL map
+resource "google_compute_url_map" "web_url_map" {
+  name            = "web-url-map"
+  default_service = google_compute_backend_service.web_backend_service.self_link
+}
+
+# Create a Google Compute Engine target HTTP proxy
+resource "google_compute_target_http_proxy" "web_target_http_proxy" {
+  name    = "web-target-http-proxy"
+  url_map = google_compute_url_map.web_url_map.self_link
+}
+
+# Create a Google Compute Engine global forwarding rule
+resource "google_compute_global_forwarding_rule" "web_forwarding_rule" {
+  name       = "web-forwarding-rule"
+  target     = google_compute_target_http_proxy.web_target_http_proxy.self_link
+  port_range = "80"
+}
+```
+
+**variables.tf:**
+```hcl
+variable "project_id" {
+  description = "The ID of the Google Cloud project"
+}
+
+variable "region" {
+  description = "The region for Google Cloud resources"
+  default     = "us-central1"
+}
+```
+
+**outputs.tf:**
+```hcl
+output "instance_ip" {
+  description = "The public IP address of the web instance"
+  value       = google_compute_instance.web_instance.network_interface[0].access_config[0].nat_ip
+}
+```
+
+With this structure, your Terraform configuration is divided into separate files, making it easier to manage and maintain. Make sure to replace `"your_project_id"` with your actual GCP project ID when using this configuration.
